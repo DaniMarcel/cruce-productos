@@ -6,8 +6,8 @@ import * as XLSX from "xlsx";
 type ExcelRow = Record<string, string>;
 type ParsedSheet = { name: string; headers: string[]; rows: ExcelRow[] };
 type ParsedBook = { fileName: string; sheets: ParsedSheet[] };
-type MasterFile = { updatedAt: string | null; source: string; products: ExcelRow[] };
-type MatchRow = { key: string; originalName: string; stock: string; matched: boolean };
+type MasterFile = { fileName: string; products: ExcelRow[] };
+type MatchRow = { key: string; originalName: string; matched: boolean };
 type Results = { rows: ExcelRow[]; preview: MatchRow[]; matched: number; unmatched: number; duplicates: number };
 
 const MASTER_KEYS = ["SKU seller", "ShopSku Falabella"];
@@ -51,18 +51,15 @@ function parseFile(file: File): Promise<ParsedBook> {
 
 function MasterCard({ master, loading, error }: { master: MasterFile | null; loading: boolean; error: string }) {
   const ready = Boolean(master?.products.length);
-  const updated = master?.updatedAt
-    ? new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(master.updatedAt))
-    : "Aún no sincronizado";
 
   return (
     <section className={`upload-card master-card ${ready ? "is-ready" : ""}`}>
       <div className="step-line">
         <span className="step-dot" aria-hidden="true">{ready ? "✓" : "1"}</span>
-        <span>{ready ? "Maestro disponible" : "Paso 1 automático"}</span>
+        <span>{ready ? "Maestro original disponible" : "Paso 1"}</span>
       </div>
       <h2>Maestro Falabella</h2>
-      <p>Se actualiza automáticamente desde Seller Center mediante GitHub.</p>
+      <p>Versión original anterior al cambio de nombres de Falabella.</p>
       <div className={`master-status ${ready ? "ready" : "empty"}`}>
         <span className="file-icon" aria-hidden="true">◫</span>
         {loading ? (
@@ -70,13 +67,13 @@ function MasterCard({ master, loading, error }: { master: MasterFile | null; loa
         ) : ready ? (
           <>
             <strong>{master!.products.length.toLocaleString("es-CL")} productos disponibles</strong>
-            <span>Última actualización: {updated}</span>
-            <div className="master-fields"><span>SKU seller</span><span>ShopSku</span><span>Producto</span><span>Marca</span><span>Estado FACL</span><span>Stock FACL</span></div>
+            <span>Archivo fijo: {master!.fileName}</span>
+            <div className="master-fields"><span>SKU seller</span><span>ShopSku Falabella</span><span>Producto original</span></div>
           </>
         ) : (
           <>
             <strong>El maestro todavía está vacío</strong>
-            <span>{error || "Ejecuta por primera vez la acción “Actualizar maestro Falabella” en GitHub."}</span>
+            <span>{error || "No se pudo cargar el Excel maestro incluido en la página."}</span>
           </>
         )}
       </div>
@@ -141,10 +138,15 @@ export default function Home() {
   const ordersSheet = ordersBook?.sheets[sheetIndex];
 
   useEffect(() => {
-    fetch(`/maestro.json?v=${Date.now()}`, { cache: "no-store" })
-      .then((response) => { if (!response.ok) throw new Error(); return response.json(); })
-      .then((data: MasterFile) => setMaster({ updatedAt: data.updatedAt ?? null, source: data.source ?? "Falabella Seller Center", products: Array.isArray(data.products) ? data.products : [] }))
-      .catch(() => setMasterError("No se pudo leer el maestro generado por GitHub."))
+    fetch("/falabella-productos.xlsx")
+      .then((response) => { if (!response.ok) throw new Error(); return response.arrayBuffer(); })
+      .then((buffer) => {
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const products = XLSX.utils.sheet_to_json<ExcelRow>(sheet, { defval: "", raw: false });
+        setMaster({ fileName: "falabella-productos.xlsx", products });
+      })
+      .catch(() => setMasterError("No se pudo leer el Excel maestro incluido en la página."))
       .finally(() => setMasterLoading(false));
   }, []);
 
@@ -174,18 +176,13 @@ export default function Home() {
 
   const crossFiles = () => {
     if (!master || !ordersSheet || !canMatch) return;
-    const lookup = new Map<string, { name: string; brand: string; status: string; stock: string }>();
+    const lookup = new Map<string, string>();
     let duplicates = 0;
     master.products.forEach((product) => {
       const key = normalizeKey(product[masterKey]);
       if (!key) return;
       if (lookup.has(key)) duplicates += 1;
-      else lookup.set(key, {
-        name: product.Producto ?? "",
-        brand: product.Marca ?? "",
-        status: product["Estado FACL"] ?? "",
-        stock: product["Stock FACL"] ?? "",
-      });
+      else lookup.set(key, product.Producto ?? "");
     });
 
     let matched = 0;
@@ -195,17 +192,10 @@ export default function Home() {
       const displayedKey = row[ordersKey] ?? "";
       const key = normalizeKey(displayedKey);
       const found = Boolean(key) && lookup.has(key);
-      const product = found ? lookup.get(key) : undefined;
-      const originalName = product?.name ?? "";
+      const originalName = found ? lookup.get(key) ?? "" : "";
       found ? matched += 1 : unmatched += 1;
-      if (preview.length < 8) preview.push({ key: displayedKey, originalName, stock: product?.stock ?? "", matched: found });
-      return {
-        ...row,
-        "Nombre original": originalName,
-        "Marca": product?.brand ?? "",
-        "Estado FACL": product?.status ?? "",
-        "Stock FACL": product?.stock ?? "",
-      };
+      if (preview.length < 8) preview.push({ key: displayedKey, originalName, matched: found });
+      return { ...row, "Nombre original": originalName };
     });
     setResults({ rows, preview, matched, unmatched, duplicates });
     requestAnimationFrame(() => document.getElementById("resultado")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -233,20 +223,20 @@ export default function Home() {
           <section className="config-card">
             <div className="section-heading"><div><span className="kicker">Paso 3</span><h2>Conecta la llave de los pedidos</h2><p>Elige qué identificador del maestro aparece en tu Excel de pedidos.</p></div><span className="auto-badge">Sugerencia automática</span></div>
             <div className="mapping-row"><FieldSelect label="Llave del maestro Falabella" value={masterKey} onChange={(value) => { setMasterKey(value); setResults(null); }} options={MASTER_KEYS} /><span className="link-symbol" aria-hidden="true">↔</span><FieldSelect label="Columna equivalente en pedidos" value={ordersKey} onChange={(value) => { setOrdersKey(value); setResults(null); }} options={ordersSheet.headers} /></div>
-            <div className="config-footer"><p><span aria-hidden="true">✓</span> Se agregarán nombre, marca, estado y stock FACL sin alterar las demás columnas.</p><button className="primary-button" type="button" disabled={!canMatch} onClick={crossFiles}>Cruzar pedidos <span>→</span></button></div>
+            <div className="config-footer"><p><span aria-hidden="true">✓</span> Se agregará el nombre original, incluyendo el sabor, sin alterar las demás columnas.</p><button className="primary-button" type="button" disabled={!canMatch} onClick={crossFiles}>Cruzar pedidos <span>→</span></button></div>
           </section>
-        ) : ordersSheet && !masterLoading ? <div className="error-message master-help">Primero debes ejecutar la actualización del maestro en GitHub.</div> : null}
+        ) : ordersSheet && !masterLoading ? <div className="error-message master-help">No fue posible cargar el maestro original incluido en la página.</div> : null}
 
         {results && (
           <section className="result-card" id="resultado">
-            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos <strong>nombre original, marca, estado y stock FACL</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
+            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre original del producto</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
             <div className="stats-grid"><div><span>Coincidencias</span><strong>{results.matched.toLocaleString("es-CL")}</strong><small>{matchRate}% del archivo</small></div><div><span>Sin coincidencia</span><strong className={results.unmatched ? "warning-text" : ""}>{results.unmatched.toLocaleString("es-CL")}</strong><small>Quedan con el nombre vacío</small></div><div><span>Total procesado</span><strong>{results.rows.length.toLocaleString("es-CL")}</strong><small>Filas de pedidos</small></div></div>
             {results.duplicates > 0 && <div className="notice">Encontramos {results.duplicates} llave(s) repetida(s) en el maestro. Se utilizó la primera aparición.</div>}
-            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre original</th><th>Stock FACL</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.originalName || <span className="empty-value">Sin coincidencia</span>}</td><td>{row.matched ? row.stock || "0" : "—"}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
+            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre original</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.originalName || <span className="empty-value">Sin coincidencia</span>}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
           </section>
         )}
       </div>
-      <footer><span>Cruce Fácil</span><p>Maestro automático · Pedidos procesados localmente</p></footer>
+      <footer><span>Cruce Fácil</span><p>Maestro original fijo · Pedidos procesados localmente</p></footer>
     </main>
   );
 }

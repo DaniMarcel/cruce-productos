@@ -1,42 +1,27 @@
 # Cruce Fácil
 
-Página para cruzar un Excel de pedidos con el maestro de productos de Falabella. El maestro se actualiza mediante GitHub Actions y Vercel solo aloja la página.
+Herramienta interna para recuperar el nombre original —incluido el sabor— de los productos vendidos en Falabella.
 
-## Configuración inicial en GitHub
+## Funcionamiento
 
-En el repositorio, abre **Settings → Secrets and variables → Actions → New repository secret** y crea estos secretos:
+- La página incluye `public/falabella-productos.xlsx` como maestro fijo.
+- El maestro conserva los nombres anteriores al cambio realizado en Falabella.
+- El usuario solo carga el Excel de pedidos.
+- Puede cruzar usando `SKU seller` o `ShopSku Falabella`.
+- El Excel descargado conserva todas las columnas de pedidos y agrega `Nombre original`.
+- Todo el cruce ocurre dentro del navegador.
 
-- `FALABELLA_USER_ID`: correo del usuario API de Seller Center.
-- `FALABELLA_API_KEY`: clave API de ese usuario.
-- `FALABELLA_BASE_URL`: `https://sellercenter-api.falabella.com`.
+No utiliza la API de Falabella, GitHub Actions, tareas programadas, secretos ni una base de datos.
 
-No agregues estos valores a archivos del repositorio ni a variables públicas de Vercel.
+## Reemplazar el maestro en el futuro
 
-## Primera actualización del maestro
+Reemplaza `public/falabella-productos.xlsx` por otro archivo con el mismo nombre y estas columnas:
 
-1. Abre la pestaña **Actions** del repositorio.
-2. Selecciona **Actualizar maestro Falabella**.
-3. Presiona **Run workflow**.
-4. La acción consulta todos los productos, guarda `public/maestro.json` y publica el cambio en el repositorio.
+- `SKU seller`
+- `ShopSku Falabella`
+- `Producto`
 
-Después de la primera ejecución, GitHub revisará los productos cada 5 minutos. También puede ejecutarse manualmente en cualquier momento. Si los datos no cambiaron, no se crea un commit ni un despliegue nuevo en Vercel.
-
-El maestro contiene solamente:
-
-- SKU seller
-- ShopSku Falabella
-- Producto
-- Marca
-- Estado FACL
-- Stock FACL
-
-> En repositorios privados, GitHub contabiliza los minutos de ejecución. Una revisión cada 5 minutos puede superar ampliamente la cuota mensual gratuita según el plan. En repositorios públicos, los runners estándar no consumen minutos facturables.
-
-## Vercel
-
-Importa el repositorio desde Vercel. La plataforma detectará Next.js automáticamente y no necesita las credenciales de Falabella ni una tarea programada.
-
-Cada cambio de `public/maestro.json` provoca un nuevo despliegue con el maestro actualizado.
+Después confirma el cambio en Git y Vercel publicará la nueva versión.
 
 ## Desarrollo local
 
