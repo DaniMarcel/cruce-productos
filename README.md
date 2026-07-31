@@ -19,7 +19,7 @@ No agregues estos valores a archivos del repositorio ni a variables públicas de
 3. Presiona **Run workflow**.
 4. La acción consulta todos los productos, guarda `public/maestro.json` y publica el cambio en el repositorio.
 
-Después de la primera ejecución, GitHub revisará los productos cada 10 minutos. También puede ejecutarse manualmente en cualquier momento. Si los datos no cambiaron, no se crea un commit ni un despliegue nuevo en Vercel.
+Después de la primera ejecución, GitHub revisará los productos cada 5 minutos. También puede ejecutarse manualmente en cualquier momento. Si los datos no cambiaron, no se crea un commit ni un despliegue nuevo en Vercel.
 
 El maestro contiene solamente:
 
@@ -30,7 +30,7 @@ El maestro contiene solamente:
 - Estado FACL
 - Stock FACL
 
-> En repositorios privados, GitHub contabiliza los minutos de ejecución. Una revisión cada 10 minutos puede superar la cuota mensual gratuita según el plan. En repositorios públicos, los runners estándar no consumen minutos facturables.
+> En repositorios privados, GitHub contabiliza los minutos de ejecución. Una revisión cada 5 minutos puede superar ampliamente la cuota mensual gratuita según el plan. En repositorios públicos, los runners estándar no consumen minutos facturables.
 
 ## Vercel
 
