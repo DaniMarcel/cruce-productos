@@ -57,6 +57,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .text-button { margin-top: 14px; padding: 4px; border: 0; color: var(--green); background: none; font-size: 12px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; }
 .file-name { max-width: 95%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-ready .dropzone { border-style: solid; border-color: #bcd7cb; background: #f7fcf9; }
+.master-status { min-height: 210px; padding: 25px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 1px solid var(--line); border-radius: 12px; background: #fbfdfc; }
+.master-status.ready { border-color: #bcd7cb; background: #f7fcf9; }
+.master-status.empty { border-style: dashed; }
+.master-status strong { margin-bottom: 6px; font-size: 15px; }
+.master-status > span:not(.file-icon) { max-width: 380px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.master-fields { margin-top: 17px; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.master-fields span { padding: 5px 8px; border-radius: 100px; color: var(--green); background: var(--green-soft); font-size: 9px; font-weight: 800; }
+.master-help { margin-top: 22px; }
 .sheet-picker { margin-top: 14px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .sheet-picker select { min-width: 0; }
 

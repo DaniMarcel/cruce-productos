@@ -1,98 +1,48 @@
-# vinext-starter
+# Cruce Fácil
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Página para cruzar un Excel de pedidos con el maestro de productos de Falabella. El maestro se actualiza mediante GitHub Actions y Vercel solo aloja la página.
 
-## Prerequisites
+## Configuración inicial en GitHub
 
-- Node.js `>=22.13.0`
+En el repositorio, abre **Settings → Secrets and variables → Actions → New repository secret** y crea estos secretos:
 
-## Quick Start
+- `FALABELLA_USER_ID`: correo del usuario API de Seller Center.
+- `FALABELLA_API_KEY`: clave API de ese usuario.
+- `FALABELLA_SELLER_ID`: Seller ID que aparece en **Mi cuenta** dentro de Seller Center.
+
+No agregues estos valores a archivos del repositorio ni a variables públicas de Vercel.
+
+## Primera actualización del maestro
+
+1. Abre la pestaña **Actions** del repositorio.
+2. Selecciona **Actualizar maestro Falabella**.
+3. Presiona **Run workflow**.
+4. La acción consulta todos los productos, guarda `public/maestro.json` y publica el cambio en el repositorio.
+
+Después de la primera ejecución, GitHub revisará los productos cada 10 minutos. También puede ejecutarse manualmente en cualquier momento. Si los datos no cambiaron, no se crea un commit ni un despliegue nuevo en Vercel.
+
+El maestro contiene solamente:
+
+- SKU seller
+- ShopSku Falabella
+- Producto
+- Marca
+- Estado FACL
+- Stock FACL
+
+> En repositorios privados, GitHub contabiliza los minutos de ejecución. Una revisión cada 10 minutos puede superar la cuota mensual gratuita según el plan. En repositorios públicos, los runners estándar no consumen minutos facturables.
+
+## Vercel
+
+Importa el repositorio desde Vercel. La plataforma detectará Next.js automáticamente y no necesita las credenciales de Falabella ni una tarea programada.
+
+Cada cambio de `public/maestro.json` provoca un nuevo despliegue con el maestro actualizado.
+
+## Desarrollo local
 
 ```bash
 npm install
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
-
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+La página estará disponible en `http://localhost:3000`.
