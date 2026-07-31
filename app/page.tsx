@@ -17,6 +17,61 @@ function normalizeKey(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("es");
 }
 
+function normalizeHeader(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function cleanCell(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function originalNameWithFlavor(product: ExcelRow) {
+  const productName = cleanCell(product.Producto);
+  const flavor = cleanCell(product.Sabor);
+  const normalizedFlavor = normalizeHeader(flavor);
+  const flavorIsMissing = !flavor || flavor === "..." || flavor === "-" || ["n a", "na", "no aplica", "sin informacion"].includes(normalizedFlavor);
+  if (flavorIsMissing) return productName;
+  return productName ? `${productName} - Sabor: ${flavor}` : `Sabor: ${flavor}`;
+}
+
+function parseMasterWorkbook(workbook: XLSX.WorkBook) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
+  const headerIndex = matrix.findIndex((row) => {
+    const headers = row.map(normalizeHeader);
+    return headers.includes("sku seller") && headers.includes("producto");
+  });
+  if (headerIndex < 0) throw new Error("El maestro no contiene las columnas SKU seller y Producto.");
+
+  const headers = matrix[headerIndex].map(normalizeHeader);
+  const findColumn = (...aliases: string[]) => headers.findIndex((header) => aliases.includes(header));
+  const sellerSkuIndex = findColumn("sku seller", "seller sku");
+  const falabellaSkuIndex = findColumn("shopsku falabella", "shop sku falabella", "sku falabella", "sku");
+  const productIndex = findColumn("producto", "nombre producto");
+  const flavorIndex = findColumn("sabor");
+  const linkIndex = findColumn("link producto", "link", "url producto", "url");
+
+  if (sellerSkuIndex < 0 || falabellaSkuIndex < 0 || productIndex < 0) {
+    throw new Error("El maestro no contiene todas las columnas necesarias para el cruce.");
+  }
+
+  return matrix.slice(headerIndex + 1)
+    .filter((row) => row.some((cell) => cleanCell(cell)))
+    .map((row) => ({
+      "SKU seller": cleanCell(row[sellerSkuIndex]),
+      "ShopSku Falabella": cleanCell(row[falabellaSkuIndex]),
+      Producto: cleanCell(row[productIndex]),
+      Sabor: flavorIndex >= 0 ? cleanCell(row[flavorIndex]) : "",
+      "Link producto": linkIndex >= 0 ? cleanCell(row[linkIndex]) : "",
+    }))
+    .filter((row) => row["SKU seller"] || row["ShopSku Falabella"] || row.Producto);
+}
+
 function parseFile(file: File): Promise<ParsedBook> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -56,10 +111,10 @@ function MasterCard({ master, loading, error }: { master: MasterFile | null; loa
     <section className={`upload-card master-card ${ready ? "is-ready" : ""}`}>
       <div className="step-line">
         <span className="step-dot" aria-hidden="true">{ready ? "✓" : "1"}</span>
-        <span>{ready ? "Maestro original disponible" : "Paso 1"}</span>
+        <span>{ready ? "Maestro con sabores disponible" : "Paso 1"}</span>
       </div>
       <h2>Maestro Falabella</h2>
-      <p>Versión original anterior al cambio de nombres de Falabella.</p>
+      <p>Maestro fijo con el nombre del producto y su sabor.</p>
       <div className={`master-status ${ready ? "ready" : "empty"}`}>
         <span className="file-icon" aria-hidden="true">◫</span>
         {loading ? (
@@ -68,7 +123,7 @@ function MasterCard({ master, loading, error }: { master: MasterFile | null; loa
           <>
             <strong>{master!.products.length.toLocaleString("es-CL")} productos disponibles</strong>
             <span>Archivo fijo: {master!.fileName}</span>
-            <div className="master-fields"><span>SKU seller</span><span>ShopSku Falabella</span><span>Producto original</span></div>
+            <div className="master-fields"><span>SKU seller</span><span>ShopSku Falabella</span><span>Producto</span><span>Sabor</span></div>
           </>
         ) : (
           <>
@@ -142,8 +197,7 @@ export default function Home() {
       .then((response) => { if (!response.ok) throw new Error(); return response.arrayBuffer(); })
       .then((buffer) => {
         const workbook = XLSX.read(buffer, { type: "array" });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const products = XLSX.utils.sheet_to_json<ExcelRow>(sheet, { defval: "", raw: false });
+        const products = parseMasterWorkbook(workbook);
         setMaster({ fileName: "falabella-productos.xlsx", products });
       })
       .catch(() => setMasterError("No se pudo leer el Excel maestro incluido en la página."))
@@ -182,7 +236,7 @@ export default function Home() {
       const key = normalizeKey(product[masterKey]);
       if (!key) return;
       if (lookup.has(key)) duplicates += 1;
-      else lookup.set(key, product.Producto ?? "");
+      else lookup.set(key, originalNameWithFlavor(product));
     });
 
     let matched = 0;
@@ -229,10 +283,10 @@ export default function Home() {
 
         {results && (
           <section className="result-card" id="resultado">
-            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre original del producto</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
+            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre del producto junto con su sabor</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
             <div className="stats-grid"><div><span>Coincidencias</span><strong>{results.matched.toLocaleString("es-CL")}</strong><small>{matchRate}% del archivo</small></div><div><span>Sin coincidencia</span><strong className={results.unmatched ? "warning-text" : ""}>{results.unmatched.toLocaleString("es-CL")}</strong><small>Quedan con el nombre vacío</small></div><div><span>Total procesado</span><strong>{results.rows.length.toLocaleString("es-CL")}</strong><small>Filas de pedidos</small></div></div>
             {results.duplicates > 0 && <div className="notice">Encontramos {results.duplicates} llave(s) repetida(s) en el maestro. Se utilizó la primera aparición.</div>}
-            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre original</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.originalName || <span className="empty-value">Sin coincidencia</span>}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
+            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre original + sabor</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.originalName || <span className="empty-value">Sin coincidencia</span>}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
           </section>
         )}
       </div>
