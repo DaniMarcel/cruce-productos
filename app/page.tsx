@@ -224,11 +224,6 @@ export default function Home() {
   return (
     <main>
       <header className="topbar"><a className="brand" href="#inicio" aria-label="Cruce Fácil, inicio"><span className="brand-mark">C</span><span>Cruce Fácil</span></a><span className="privacy-pill"><span>●</span> Tus pedidos se procesan solo en este navegador</span></header>
-      <section className="hero" id="inicio">
-        <div className="hero-copy"><span className="kicker">Cruce de productos</span><h1>Recupera el nombre original de cada producto.</h1><p>El maestro se mantiene actualizado desde Falabella. Solo carga tus pedidos y descarga el Excel listo.</p></div>
-        <div className="mini-flow" aria-label="Proceso en tres pasos"><div><b>1</b><span>Maestro auto</span></div><i>→</i><div><b>2</b><span>Pedidos</span></div><i>→</i><div><b>3</b><span>Resultado</span></div></div>
-      </section>
-
       <div className="workspace">
         {error && <div className="error-message" role="alert">{error}</div>}
         {busy && <div className="loading-bar" role="status">Leyendo tu archivo…</div>}

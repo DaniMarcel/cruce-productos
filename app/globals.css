@@ -37,7 +37,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .mini-flow b { width: 38px; height: 38px; display: grid; place-items: center; color: #d8eee4; border: 1px solid rgba(213, 237, 226, .3); border-radius: 50%; }
 .mini-flow i { color: #71978a; font-style: normal; }
 
-.workspace { width: min(1180px, calc(100% - 40px)); margin: -24px auto 70px; position: relative; }
+.workspace { width: min(1180px, calc(100% - 40px)); margin: 32px auto 70px; position: relative; }
 .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
 .upload-card, .config-card, .result-card { background: var(--paper); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
 .upload-card { padding: 28px; }
@@ -143,7 +143,7 @@ footer p { margin: 0; }
   .hero { padding: 42px 20px 56px; }
   .hero h1 { font-size: 39px; }
   .mini-flow { width: 100%; justify-content: center; }
-  .workspace { width: calc(100% - 24px); margin-top: -16px; }
+  .workspace { width: calc(100% - 24px); margin-top: 20px; }
   .upload-card, .config-card { padding: 22px; }
   .section-heading { flex-direction: column; }
   .config-footer { flex-direction: column; align-items: stretch; }
