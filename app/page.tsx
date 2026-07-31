@@ -30,12 +30,40 @@ function cleanCell(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
 }
 
+function normalizeFlavorText(value: unknown) {
+  return normalizeHeader(value)
+    .replace(/\b(and|y)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function productNameIncludesFlavor(productName: string, flavor: string) {
+  const normalizedName = normalizeFlavorText(productName);
+  const normalizedFlavor = normalizeFlavorText(flavor);
+  if (!normalizedName || !normalizedFlavor) return false;
+  if (normalizedName.includes(normalizedFlavor)) return true;
+
+  const nameTokens = new Set(normalizedName.split(" ").filter(Boolean));
+  const flavorTokens = normalizedFlavor.split(" ").filter(Boolean);
+  return flavorTokens.length > 0 && flavorTokens.every((token) => nameTokens.has(token));
+}
+
 function originalNameWithFlavor(product: ExcelRow) {
   const productName = cleanCell(product.Producto);
   const flavor = cleanCell(product.Sabor);
-  const normalizedFlavor = normalizeHeader(flavor);
-  const flavorIsMissing = !flavor || flavor === "..." || flavor === "-" || ["n a", "na", "no aplica", "sin informacion"].includes(normalizedFlavor);
-  if (flavorIsMissing) return productName;
+  const normalizedFlavor = normalizeFlavorText(flavor);
+  const flavorIsGeneric = !normalizedFlavor || [
+    "n a",
+    "na",
+    "no aplica",
+    "sin informacion",
+    "no especificado",
+    "otro",
+    "otro sabor",
+    "otros sabores",
+    "sabor",
+  ].includes(normalizedFlavor);
+  if (flavorIsGeneric || productNameIncludesFlavor(productName, flavor)) return productName;
   return productName ? `${productName} - Sabor: ${flavor}` : `Sabor: ${flavor}`;
 }
 
