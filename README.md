@@ -8,7 +8,7 @@ En el repositorio, abre **Settings → Secrets and variables → Actions → New
 
 - `FALABELLA_USER_ID`: correo del usuario API de Seller Center.
 - `FALABELLA_API_KEY`: clave API de ese usuario.
-- `FALABELLA_SELLER_ID`: Seller ID que aparece en **Mi cuenta** dentro de Seller Center.
+- `FALABELLA_BASE_URL`: `https://sellercenter-api.falabella.com`.
 
 No agregues estos valores a archivos del repositorio ni a variables públicas de Vercel.
 

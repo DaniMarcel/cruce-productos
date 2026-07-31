@@ -3,11 +3,10 @@ import { readFile, writeFile } from "node:fs/promises";
 
 const userId = process.env.FALABELLA_USER_ID?.trim();
 const apiKey = process.env.FALABELLA_API_KEY?.trim();
-const sellerId = process.env.FALABELLA_SELLER_ID?.trim();
 const baseUrl = (process.env.FALABELLA_BASE_URL || "https://sellercenter-api.falabella.com").replace(/\/$/, "");
 
-if (!userId || !apiKey || !sellerId) {
-  throw new Error("Faltan FALABELLA_USER_ID, FALABELLA_API_KEY o FALABELLA_SELLER_ID en GitHub Secrets.");
+if (!userId || !apiKey) {
+  throw new Error("Faltan FALABELLA_USER_ID o FALABELLA_API_KEY en GitHub Secrets.");
 }
 
 const encodeRfc3986 = (value) => encodeURIComponent(String(value)).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -56,7 +55,6 @@ async function fetchPage(offset, limit) {
   const response = await fetch(`${baseUrl}/?${signedQuery(parameters)}`, {
     headers: {
       Accept: "application/json",
-      "User-Agent": `${sellerId}/Node.js/22/PROPIA/FACL`,
     },
   });
   const text = await response.text();

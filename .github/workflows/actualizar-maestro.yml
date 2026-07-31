@@ -15,6 +15,7 @@ concurrency:
 jobs:
   actualizar:
     runs-on: ubuntu-latest
+    environment: Production
     timeout-minutes: 15
     steps:
       - name: Descargar repositorio
@@ -29,8 +30,7 @@ jobs:
         env:
           FALABELLA_USER_ID: ${{ secrets.FALABELLA_USER_ID }}
           FALABELLA_API_KEY: ${{ secrets.FALABELLA_API_KEY }}
-          FALABELLA_SELLER_ID: ${{ secrets.FALABELLA_SELLER_ID }}
-          FALABELLA_BASE_URL: https://sellercenter-api.falabella.com
+          FALABELLA_BASE_URL: ${{ secrets.FALABELLA_BASE_URL }}
         run: node .github/scripts/sync-falabella.mjs
 
       - name: Publicar maestro actualizado
