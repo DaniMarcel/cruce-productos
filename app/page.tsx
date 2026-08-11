@@ -7,7 +7,7 @@ type ExcelRow = Record<string, string>;
 type ParsedSheet = { name: string; headers: string[]; rows: ExcelRow[] };
 type ParsedBook = { fileName: string; sheets: ParsedSheet[] };
 type MasterFile = { fileName: string; products: ExcelRow[] };
-type MatchRow = { key: string; originalName: string; matched: boolean };
+type MatchRow = { key: string; updatedName: string; matched: boolean };
 type Results = { rows: ExcelRow[]; preview: MatchRow[]; matched: number; unmatched: number; duplicates: number };
 
 const MASTER_KEYS = ["SKU seller", "ShopSku Falabella"];
@@ -30,41 +30,9 @@ function cleanCell(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
 }
 
-function normalizeFlavorText(value: unknown) {
-  return normalizeHeader(value)
-    .replace(/\b(and|y)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function productNameIncludesFlavor(productName: string, flavor: string) {
-  const normalizedName = normalizeFlavorText(productName);
-  const normalizedFlavor = normalizeFlavorText(flavor);
-  if (!normalizedName || !normalizedFlavor) return false;
-  if (normalizedName.includes(normalizedFlavor)) return true;
-
-  const nameTokens = new Set(normalizedName.split(" ").filter(Boolean));
-  const flavorTokens = normalizedFlavor.split(" ").filter(Boolean);
-  return flavorTokens.length > 0 && flavorTokens.every((token) => nameTokens.has(token));
-}
-
-function originalNameWithFlavor(product: ExcelRow) {
-  const productName = cleanCell(product.Producto);
-  const flavor = cleanCell(product.Sabor);
-  const normalizedFlavor = normalizeFlavorText(flavor);
-  const flavorIsGeneric = !normalizedFlavor || [
-    "n a",
-    "na",
-    "no aplica",
-    "sin informacion",
-    "no especificado",
-    "otro",
-    "otro sabor",
-    "otros sabores",
-    "sabor",
-  ].includes(normalizedFlavor);
-  if (flavorIsGeneric || productNameIncludesFlavor(productName, flavor)) return productName;
-  return productName ? `${productName} - Sabor: ${flavor}` : `Sabor: ${flavor}`;
+function isValidFinalName(value: unknown) {
+  const name = cleanCell(value);
+  return Boolean(name) && !name.startsWith("#");
 }
 
 function parseMasterWorkbook(workbook: XLSX.WorkBook) {
@@ -73,32 +41,33 @@ function parseMasterWorkbook(workbook: XLSX.WorkBook) {
   const headerIndex = matrix.findIndex((row) => {
     const headers = row.map(normalizeHeader);
     const hasSellerSku = headers.some((header) => ["sku seller", "seller sku", "sellersku"].includes(header));
-    const hasProductName = headers.some((header) => ["producto", "nombre producto", "name"].includes(header));
+    const hasProductName = headers.some((header) => ["producto", "nombre producto", "name", "columna 1", "columna1"].includes(header));
     return hasSellerSku && hasProductName;
   });
-  if (headerIndex < 0) throw new Error("El maestro no contiene las columnas SKU seller y Producto.");
+  if (headerIndex < 0) throw new Error("El maestro no contiene SellerSku y una columna de nombre válida.");
 
   const headers = matrix[headerIndex].map(normalizeHeader);
   const findColumn = (...aliases: string[]) => headers.findIndex((header) => aliases.includes(header));
   const sellerSkuIndex = findColumn("sku seller", "seller sku", "sellersku");
   const falabellaSkuIndex = findColumn("shopsku falabella", "shop sku falabella", "sku falabella", "sku", "shopsku");
   const productIndex = findColumn("producto", "nombre producto", "name");
-  const flavorIndex = findColumn("sabor", "productdata sabor");
-  const linkIndex = findColumn("link producto", "link", "url producto", "url");
+  const finalNameIndex = findColumn("columna 1", "columna1");
 
-  if (sellerSkuIndex < 0 || falabellaSkuIndex < 0 || productIndex < 0) {
+  if (sellerSkuIndex < 0 || falabellaSkuIndex < 0 || (productIndex < 0 && finalNameIndex < 0)) {
     throw new Error("El maestro no contiene todas las columnas necesarias para el cruce.");
   }
 
   return matrix.slice(headerIndex + 1)
     .filter((row) => row.some((cell) => cleanCell(cell)))
-    .map((row) => ({
-      "SKU seller": cleanCell(row[sellerSkuIndex]),
-      "ShopSku Falabella": cleanCell(row[falabellaSkuIndex]),
-      Producto: cleanCell(row[productIndex]),
-      Sabor: flavorIndex >= 0 ? cleanCell(row[flavorIndex]) : "",
-      "Link producto": linkIndex >= 0 ? cleanCell(row[linkIndex]) : "",
-    }))
+    .map((row) => {
+      const currentName = productIndex >= 0 ? cleanCell(row[productIndex]) : "";
+      const finalName = finalNameIndex >= 0 ? cleanCell(row[finalNameIndex]) : "";
+      return {
+        "SKU seller": cleanCell(row[sellerSkuIndex]),
+        "ShopSku Falabella": cleanCell(row[falabellaSkuIndex]),
+        Producto: isValidFinalName(finalName) ? finalName : currentName,
+      };
+    })
     .filter((row) => row["SKU seller"] || row["ShopSku Falabella"] || row.Producto);
 }
 
@@ -141,10 +110,10 @@ function MasterCard({ master, loading, error }: { master: MasterFile | null; loa
     <section className={`upload-card master-card ${ready ? "is-ready" : ""}`}>
       <div className="step-line">
         <span className="step-dot" aria-hidden="true">{ready ? "✓" : "1"}</span>
-        <span>{ready ? "Maestro con sabores disponible" : "Paso 1"}</span>
+        <span>{ready ? "Maestro actualizado disponible" : "Paso 1"}</span>
       </div>
       <h2>Maestro Falabella</h2>
-      <p>Maestro fijo con el nombre del producto y su sabor.</p>
+      <p>Maestro fijo con el nombre final definido para cada producto.</p>
       <div className={`master-status ${ready ? "ready" : "empty"}`}>
         <span className="file-icon" aria-hidden="true">◫</span>
         {loading ? (
@@ -153,7 +122,7 @@ function MasterCard({ master, loading, error }: { master: MasterFile | null; loa
           <>
             <strong>{master!.products.length.toLocaleString("es-CL")} productos disponibles</strong>
             <span>Archivo fijo: {master!.fileName}</span>
-            <div className="master-fields"><span>SKU seller</span><span>ShopSku Falabella</span><span>Producto</span><span>Sabor</span></div>
+            <div className="master-fields"><span>SKU seller</span><span>ShopSku Falabella</span><span>Nombre final</span></div>
           </>
         ) : (
           <>
@@ -266,7 +235,7 @@ export default function Home() {
       const key = normalizeKey(product[masterKey]);
       if (!key) return;
       if (lookup.has(key)) duplicates += 1;
-      else lookup.set(key, originalNameWithFlavor(product));
+      else lookup.set(key, product.Producto ?? "");
     });
 
     let matched = 0;
@@ -276,10 +245,10 @@ export default function Home() {
       const displayedKey = row[ordersKey] ?? "";
       const key = normalizeKey(displayedKey);
       const found = Boolean(key) && lookup.has(key);
-      const originalName = found ? lookup.get(key) ?? "" : "";
+      const updatedName = found ? lookup.get(key) ?? "" : "";
       found ? matched += 1 : unmatched += 1;
-      if (preview.length < 8) preview.push({ key: displayedKey, originalName, matched: found });
-      return { ...row, "Nombre original": originalName };
+      if (preview.length < 8) preview.push({ key: displayedKey, updatedName, matched: found });
+      return { ...row, "Nombre actualizado": updatedName };
     });
     setResults({ rows, preview, matched, unmatched, duplicates });
     requestAnimationFrame(() => document.getElementById("resultado")?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -307,20 +276,20 @@ export default function Home() {
           <section className="config-card">
             <div className="section-heading"><div><span className="kicker">Paso 3</span><h2>Conecta la llave de los pedidos</h2><p>Elige qué identificador del maestro aparece en tu Excel de pedidos.</p></div><span className="auto-badge">Sugerencia automática</span></div>
             <div className="mapping-row"><FieldSelect label="Llave del maestro Falabella" value={masterKey} onChange={(value) => { setMasterKey(value); setResults(null); }} options={MASTER_KEYS} /><span className="link-symbol" aria-hidden="true">↔</span><FieldSelect label="Columna equivalente en pedidos" value={ordersKey} onChange={(value) => { setOrdersKey(value); setResults(null); }} options={ordersSheet.headers} /></div>
-            <div className="config-footer"><p><span aria-hidden="true">✓</span> Se agregará el nombre original, incluyendo el sabor, sin alterar las demás columnas.</p><button className="primary-button" type="button" disabled={!canMatch} onClick={crossFiles}>Cruzar pedidos <span>→</span></button></div>
+            <div className="config-footer"><p><span aria-hidden="true">✓</span> Se agregará el nombre final de Columna1, sin alterar las demás columnas.</p><button className="primary-button" type="button" disabled={!canMatch} onClick={crossFiles}>Cruzar pedidos <span>→</span></button></div>
           </section>
-        ) : ordersSheet && !masterLoading ? <div className="error-message master-help">No fue posible cargar el maestro original incluido en la página.</div> : null}
+        ) : ordersSheet && !masterLoading ? <div className="error-message master-help">No fue posible cargar el maestro actualizado incluido en la página.</div> : null}
 
         {results && (
           <section className="result-card" id="resultado">
-            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre del producto junto con su sabor</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
+            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre actualizado del producto</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
             <div className="stats-grid"><div><span>Coincidencias</span><strong>{results.matched.toLocaleString("es-CL")}</strong><small>{matchRate}% del archivo</small></div><div><span>Sin coincidencia</span><strong className={results.unmatched ? "warning-text" : ""}>{results.unmatched.toLocaleString("es-CL")}</strong><small>Quedan con el nombre vacío</small></div><div><span>Total procesado</span><strong>{results.rows.length.toLocaleString("es-CL")}</strong><small>Filas de pedidos</small></div></div>
             {results.duplicates > 0 && <div className="notice">Encontramos {results.duplicates} llave(s) repetida(s) en el maestro. Se utilizó la primera aparición.</div>}
-            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre original + sabor</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.originalName || <span className="empty-value">Sin coincidencia</span>}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
+            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre actualizado</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.updatedName || <span className="empty-value">Sin coincidencia</span>}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
           </section>
         )}
       </div>
-      <footer><span>Cruce Fácil</span><p>Maestro original fijo · Pedidos procesados localmente</p></footer>
+      <footer><span>Cruce Fácil</span><p>Maestro actualizado fijo · Pedidos procesados localmente</p></footer>
     </main>
   );
 }

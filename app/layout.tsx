@@ -6,12 +6,12 @@ const siteUrl = productionHost ? `https://${productionHost}` : "http://localhost
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Cruce Fácil | Recupera nombres de productos",
-  description: "Cruza tus pedidos con el maestro actualizado de Falabella y recupera automáticamente el nombre original de cada producto.",
+  title: "Cruce Fácil | Actualiza nombres de productos",
+  description: "Cruza tus pedidos con el maestro de Falabella y agrega automáticamente el nombre actualizado de cada producto.",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
   openGraph: {
     title: "Cruce Fácil",
-    description: "Recupera el nombre original de cada producto.",
+    description: "Agrega el nombre actualizado de cada producto.",
     type: "website",
     images: [{ url: "/og.png", width: 1536, height: 896, alt: "Cruce Fácil" }],
   },
