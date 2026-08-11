@@ -72,16 +72,18 @@ function parseMasterWorkbook(workbook: XLSX.WorkBook) {
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
   const headerIndex = matrix.findIndex((row) => {
     const headers = row.map(normalizeHeader);
-    return headers.includes("sku seller") && headers.includes("producto");
+    const hasSellerSku = headers.some((header) => ["sku seller", "seller sku", "sellersku"].includes(header));
+    const hasProductName = headers.some((header) => ["producto", "nombre producto", "name"].includes(header));
+    return hasSellerSku && hasProductName;
   });
   if (headerIndex < 0) throw new Error("El maestro no contiene las columnas SKU seller y Producto.");
 
   const headers = matrix[headerIndex].map(normalizeHeader);
   const findColumn = (...aliases: string[]) => headers.findIndex((header) => aliases.includes(header));
-  const sellerSkuIndex = findColumn("sku seller", "seller sku");
-  const falabellaSkuIndex = findColumn("shopsku falabella", "shop sku falabella", "sku falabella", "sku");
-  const productIndex = findColumn("producto", "nombre producto");
-  const flavorIndex = findColumn("sabor");
+  const sellerSkuIndex = findColumn("sku seller", "seller sku", "sellersku");
+  const falabellaSkuIndex = findColumn("shopsku falabella", "shop sku falabella", "sku falabella", "sku", "shopsku");
+  const productIndex = findColumn("producto", "nombre producto", "name");
+  const flavorIndex = findColumn("sabor", "productdata sabor");
   const linkIndex = findColumn("link producto", "link", "url producto", "url");
 
   if (sellerSkuIndex < 0 || falabellaSkuIndex < 0 || productIndex < 0) {
