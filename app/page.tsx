@@ -6,13 +6,27 @@ import * as XLSX from "xlsx";
 type ExcelRow = Record<string, string>;
 type ParsedSheet = { name: string; headers: string[]; rows: ExcelRow[] };
 type ParsedBook = { fileName: string; sheets: ParsedSheet[] };
-type MasterFile = { fileName: string; products: ExcelRow[]; flavorColumns: string[] };
+type MasterFile = { fileName: string; products: ExcelRow[]; flavorColumns: string[]; flavorCatalog: string[] };
 type FlavorColumn = { source: string; output: string };
 type MatchRow = { key: string; updatedName: string; flavors: ExcelRow; matched: boolean };
-type Results = { rows: ExcelRow[]; preview: MatchRow[]; flavorColumns: FlavorColumn[]; matched: number; unmatched: number; duplicates: number };
+type DerivedColumns = { flavor: string; source: string; review: string };
+type Results = { rows: ExcelRow[]; preview: MatchRow[]; flavorColumns: FlavorColumn[]; derivedColumns: DerivedColumns; matched: number; unmatched: number; duplicates: number };
 
 const MASTER_KEYS = ["SKU seller", "ShopSku Falabella"];
 const fileAccept = ".xlsx,.xls,.csv";
+const FLAVOR_SOURCE_HEADERS = new Set([
+  "variation",
+  "productdata model",
+  "productdata sabor",
+  "productdata saborvariant",
+  "saborvariant",
+]);
+const NON_SPECIFIC_FLAVORS = new Set([
+  "otro sabor",
+  "mix de sabores",
+  "endulzado con stevia",
+  "mix de verduras",
+]);
 
 function normalizeKey(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("es");
@@ -37,7 +51,74 @@ function isValidFinalName(value: unknown) {
 }
 
 function isFlavorHeader(value: unknown) {
-  return /(sabor|flavou?r|taste)/i.test(normalizeHeader(value));
+  const header = normalizeHeader(value);
+  return FLAVOR_SOURCE_HEADERS.has(header) || /(sabor|flavou?r|taste)/i.test(header);
+}
+
+function isSpecificFlavor(value: unknown) {
+  const flavor = normalizeHeader(value);
+  return Boolean(flavor) && !NON_SPECIFIC_FLAVORS.has(flavor);
+}
+
+function canonicalFlavor(value: unknown) {
+  const flavor = normalizeHeader(value);
+  const aliases: Record<string, string> = {
+    fresa: "frutilla",
+    strawberry: "frutilla",
+    "neutro sin sabor": "sin sabor",
+    "cookies cream": "cookies and cream",
+    "cookie and cream": "cookies and cream",
+    "cookies n cream": "cookies and cream",
+  };
+  return aliases[flavor] ?? flavor;
+}
+
+function getProductValue(product: ExcelRow, normalizedHeader: string) {
+  const entry = Object.entries(product).find(([header]) => normalizeHeader(header) === normalizedHeader);
+  return cleanCell(entry?.[1]);
+}
+
+function extractKnownFlavor(value: unknown, flavorCatalog: string[]) {
+  const text = ` ${normalizeHeader(value)} `;
+  if (!text.trim()) return "";
+  return flavorCatalog.find((flavor) => text.includes(` ${normalizeHeader(flavor)} `)) ?? "";
+}
+
+function resolveFlavor(product: ExcelRow, flavorCatalog: string[]) {
+  const candidates = [
+    { source: "SaborVariant", value: getProductValue(product, "saborvariant") },
+    { source: "Variation", value: getProductValue(product, "variation") },
+    { source: "ProductData.Sabor", value: getProductValue(product, "productdata sabor") },
+    { source: "ProductData.SaborVariant", value: getProductValue(product, "productdata saborvariant") },
+  ];
+  const modelFlavor = extractKnownFlavor(getProductValue(product, "productdata model"), flavorCatalog);
+  const nameFlavor = extractKnownFlavor(product.Producto, flavorCatalog);
+  const lowConfidenceFlavor = candidates[2]?.value;
+  const isLowConfidence = canonicalFlavor(lowConfidenceFlavor) === "sin sabor";
+  const priority = [
+    candidates[0],
+    candidates[1],
+    !isLowConfidence ? candidates[2] : null,
+    candidates[3],
+    modelFlavor ? { source: "ProductData.Model", value: modelFlavor } : null,
+    nameFlavor ? { source: "Nombre final", value: nameFlavor } : null,
+    isLowConfidence ? candidates[2] : null,
+  ].filter((candidate): candidate is { source: string; value: string } => Boolean(candidate && isSpecificFlavor(candidate.value)));
+
+  const selected = priority[0] ?? { source: "", value: "" };
+  const comparisonValues = [
+    ...candidates.filter((candidate) => isSpecificFlavor(candidate.value)).map((candidate) => candidate.value),
+    modelFlavor,
+    nameFlavor,
+  ].filter(isSpecificFlavor);
+  const distinctValues = new Set(comparisonValues.map(canonicalFlavor));
+  const review = !selected.value
+    ? "Sí: sin sabor identificado"
+    : distinctValues.size > 1
+      ? "Sí: valores distintos"
+      : "No";
+
+  return { flavor: selected.value, source: selected.source, review };
 }
 
 function createUniqueHeader(header: string, usedHeaders: Set<string>) {
@@ -108,7 +189,19 @@ function parseMasterWorkbook(workbook: XLSX.WorkBook) {
     })
     .filter((row) => row["SKU seller"] || row["ShopSku Falabella"] || row.Producto);
 
-  return { products, flavorColumns: flavorColumns.map(({ header }) => header) };
+  const flavorCatalogMap = new Map<string, string>();
+  products.forEach((product) => {
+    flavorColumns.forEach(({ header }) => {
+      const value = product[header];
+      if (!isSpecificFlavor(value) || normalizeHeader(header) === "productdata model") return;
+      const canonical = canonicalFlavor(value);
+      if (!flavorCatalogMap.has(canonical)) flavorCatalogMap.set(canonical, value);
+    });
+  });
+  const flavorCatalog = [...flavorCatalogMap.values()]
+    .sort((left, right) => normalizeHeader(right).length - normalizeHeader(left).length);
+
+  return { products, flavorColumns: flavorColumns.map(({ header }) => header), flavorCatalog };
 }
 
 function parseFile(file: File): Promise<ParsedBook> {
@@ -282,6 +375,11 @@ export default function Home() {
       source,
       output: createUniqueHeader(source, usedHeaders),
     }));
+    const derivedColumns: DerivedColumns = {
+      flavor: createUniqueHeader("Sabor consolidado", usedHeaders),
+      source: createUniqueHeader("Fuente del sabor", usedHeaders),
+      review: createUniqueHeader("Revisar sabor", usedHeaders),
+    };
 
     let matched = 0;
     let unmatched = 0;
@@ -293,12 +391,18 @@ export default function Home() {
       const product = found ? lookup.get(key) : undefined;
       const updatedName = product?.Producto ?? "";
       const flavors = Object.fromEntries(flavorColumns.map(({ source, output }) => [output, product?.[source] ?? ""]));
+      const resolved = product
+        ? resolveFlavor(product, master.flavorCatalog)
+        : { flavor: "", source: "", review: "Sí: sin coincidencia" };
+      flavors[derivedColumns.flavor] = resolved.flavor;
+      flavors[derivedColumns.source] = resolved.source;
+      flavors[derivedColumns.review] = resolved.review;
       if (found) matched += 1;
       else unmatched += 1;
       if (preview.length < 8) preview.push({ key: displayedKey, updatedName, flavors, matched: found });
       return { ...row, "Nombre actualizado": updatedName, ...flavors };
     });
-    setResults({ rows, preview, flavorColumns, matched, unmatched, duplicates });
+    setResults({ rows, preview, flavorColumns, derivedColumns, matched, unmatched, duplicates });
     requestAnimationFrame(() => document.getElementById("resultado")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
@@ -324,16 +428,16 @@ export default function Home() {
           <section className="config-card">
             <div className="section-heading"><div><span className="kicker">Paso 3</span><h2>Conecta la llave de los pedidos</h2><p>Elige qué identificador del maestro aparece en tu Excel de pedidos.</p></div><span className="auto-badge">Sugerencia automática</span></div>
             <div className="mapping-row"><FieldSelect label="Llave del maestro Falabella" value={masterKey} onChange={(value) => { setMasterKey(value); setResults(null); }} options={MASTER_KEYS} /><span className="link-symbol" aria-hidden="true">↔</span><FieldSelect label="Columna equivalente en pedidos" value={ordersKey} onChange={(value) => { setOrdersKey(value); setResults(null); }} options={ordersSheet.headers} /></div>
-            <div className="config-footer"><p><span aria-hidden="true">✓</span> Se agregarán el nombre final y todas las columnas de sabor del maestro, sin alterar las demás columnas.</p><button className="primary-button" type="button" disabled={!canMatch} onClick={crossFiles}>Cruzar pedidos <span>→</span></button></div>
+            <div className="config-footer"><p><span aria-hidden="true">✓</span> Se conservarán todas las fuentes de sabor y se agregará un sabor consolidado con su origen y control de diferencias.</p><button className="primary-button" type="button" disabled={!canMatch} onClick={crossFiles}>Cruzar pedidos <span>→</span></button></div>
           </section>
         ) : ordersSheet && !masterLoading ? <div className="error-message master-help">No fue posible cargar el maestro actualizado incluido en la página.</div> : null}
 
         {results && (
           <section className="result-card" id="resultado">
-            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre actualizado y {results.flavorColumns.length} columnas de sabor</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
+            <div className="result-top"><div className="success-icon" aria-hidden="true">✓</div><div><span className="kicker">Cruce completado</span><h2>Tu archivo está listo</h2><p>Agregamos el <strong>nombre actualizado, {results.flavorColumns.length} fuentes de sabor y el sabor consolidado</strong> sin modificar las demás columnas.</p></div><button className="download-button" type="button" onClick={download}>↓ Descargar Excel</button></div>
             <div className="stats-grid"><div><span>Coincidencias</span><strong>{results.matched.toLocaleString("es-CL")}</strong><small>{matchRate}% del archivo</small></div><div><span>Sin coincidencia</span><strong className={results.unmatched ? "warning-text" : ""}>{results.unmatched.toLocaleString("es-CL")}</strong><small>Quedan con el nombre vacío</small></div><div><span>Total procesado</span><strong>{results.rows.length.toLocaleString("es-CL")}</strong><small>Filas de pedidos</small></div></div>
             {results.duplicates > 0 && <div className="notice">Encontramos {results.duplicates} llave(s) repetida(s) en el maestro. Se utilizó la primera aparición.</div>}
-            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre actualizado</th>{results.flavorColumns.map(({ output }) => <th key={output}>{output}</th>)}<th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.updatedName || <span className="empty-value">Sin coincidencia</span>}</td>{results.flavorColumns.map(({ output }) => <td key={output}>{row.flavors[output] || <span className="empty-value">—</span>}</td>)}<td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
+            <div className="preview-wrap"><div className="preview-title"><h3>Vista previa</h3><span>Primeras {results.preview.length} filas</span></div><div className="table-scroll"><table><thead><tr><th>{ordersKey}</th><th>Nombre actualizado</th>{results.flavorColumns.map(({ output }) => <th key={output}>{output}</th>)}<th>{results.derivedColumns.flavor}</th><th>{results.derivedColumns.source}</th><th>{results.derivedColumns.review}</th><th>Estado</th></tr></thead><tbody>{results.preview.map((row, index) => <tr key={`${row.key}-${index}`}><td>{row.key || <em>Vacío</em>}</td><td>{row.updatedName || <span className="empty-value">Sin coincidencia</span>}</td>{results.flavorColumns.map(({ output }) => <td key={output}>{row.flavors[output] || <span className="empty-value">—</span>}</td>)}<td>{row.flavors[results.derivedColumns.flavor] || <span className="empty-value">—</span>}</td><td>{row.flavors[results.derivedColumns.source] || <span className="empty-value">—</span>}</td><td>{row.flavors[results.derivedColumns.review]}</td><td><span className={`status ${row.matched ? "matched" : "unmatched"}`}>{row.matched ? "Encontrado" : "Revisar"}</span></td></tr>)}</tbody></table></div></div>
           </section>
         )}
       </div>
